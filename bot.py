@@ -17,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime
 
 import httpx
+import redis
 from telegram import Bot
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
@@ -32,8 +33,19 @@ log = logging.getLogger(__name__)
 # ─── Configurações ─────────────────────────────────────────────────────────────
 TELEGRAM_TOKEN   = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHANNEL = os.environ["TELEGRAM_CHANNEL"]
-SEEN_FILE        = "seen_ids.json"
+REDIS_URL        = os.getenv("REDIS_URL", "")
 CHECK_INTERVAL   = 60  # segundos
+
+# ─── Redis (anti-duplicatas persistente) ──────────────────────────────────────
+rdb = None
+if REDIS_URL:
+    try:
+        rdb = redis.from_url(REDIS_URL, decode_responses=True)
+        rdb.ping()
+        log.info("✅ Redis conectado!")
+    except Exception as e:
+        log.warning(f"⚠️ Redis falhou, usando memória local: {e}")
+        rdb = None
 
 # ─── Palavras-chave ────────────────────────────────────────────────────────────
 KEYWORDS = [
@@ -87,16 +99,26 @@ NITTER_INSTANCES = [
 ]
 
 # ─── Persistência ──────────────────────────────────────────────────────────────
+SEEN_LOCAL = set()  # fallback em memória
+
 def load_seen():
-    try:
-        with open(SEEN_FILE) as f:
-            return set(json.load(f))
-    except:
-        return set()
+    if rdb:
+        try:
+            return set(rdb.smembers("seen_ids"))
+        except:
+            pass
+    return set(SEEN_LOCAL)
 
 def save_seen(seen):
-    with open(SEEN_FILE, "w") as f:
-        json.dump(list(seen)[-5000:], f)
+    global SEEN_LOCAL
+    SEEN_LOCAL = seen
+    if rdb:
+        try:
+            if seen:
+                rdb.sadd("seen_ids", *seen)
+                rdb.expire("seen_ids", 60 * 60 * 24 * 30)  # expira em 30 dias
+        except Exception as e:
+            log.warning(f"⚠️ Erro ao salvar no Redis: {e}")
 
 def make_id(text):
     return hashlib.md5(text.encode()).hexdigest()
