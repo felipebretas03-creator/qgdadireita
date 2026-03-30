@@ -2,6 +2,7 @@
 """
 Bot de Notícias Telegram - Governo de Direita
 Monitora RSS, X (Twitter) e outras fontes em tempo real
+Roda como Web Service no Render (plano gratuito)
 """
 
 import asyncio
@@ -11,35 +12,30 @@ import json
 import logging
 import os
 import re
-import time
-from datetime import datetime, timezone
-from pathlib import Path
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from datetime import datetime
 
 import httpx
 from telegram import Bot
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
 
-# ─── Configuração de logging ───────────────────────────────────────────────────
+# ─── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.FileHandler("bot.log"),
-        logging.StreamHandler(),
-    ],
+    handlers=[logging.StreamHandler()],
 )
 log = logging.getLogger(__name__)
 
-# ─── Configurações (lidas de variáveis de ambiente) ───────────────────────────
-TELEGRAM_TOKEN   = os.environ["TELEGRAM_TOKEN"]       # Token do BotFather
-TELEGRAM_CHANNEL = os.environ["TELEGRAM_CHANNEL"]     # Ex: @meucanal ou -100123456789
-RAPIDAPI_KEY     = os.getenv("RAPIDAPI_KEY", "")      # Para X/Twitter via RapidAPI (opcional)
+# ─── Configurações ─────────────────────────────────────────────────────────────
+TELEGRAM_TOKEN   = os.environ["TELEGRAM_TOKEN"]
+TELEGRAM_CHANNEL = os.environ["TELEGRAM_CHANNEL"]
+SEEN_FILE        = "seen_ids.json"
+CHECK_INTERVAL   = 60  # segundos
 
-SEEN_FILE = Path("seen_ids.json")
-CHECK_INTERVAL = 60  # segundos entre cada ciclo de verificação
-
-# ─── Palavras-chave de filtro ──────────────────────────────────────────────────
+# ─── Palavras-chave ────────────────────────────────────────────────────────────
 KEYWORDS = [
     "governo", "bolsonaro", "lula", "direita", "conservador",
     "ministério", "congresso", "senado", "câmara", "presidente",
@@ -50,82 +46,68 @@ KEYWORDS = [
 
 # ─── Fontes RSS ────────────────────────────────────────────────────────────────
 RSS_FEEDS = {
-    "Jovem Pan": "https://jovempan.com.br/feed",
-    "CNN Brasil": "https://www.cnnbrasil.com.br/feed/",
-    "Folha de S.Paulo": "https://feeds.folha.uol.com.br/poder/rss091.xml",
-    "O Globo Política": "https://oglobo.globo.com/rss.xml?secao=politica",
-    "Metrópoles": "https://www.metropoles.com/feed",
-    "Veja": "https://veja.abril.com.br/feed/",
-    "UOL Política": "https://rss.uol.com.br/feed/noticias/politica.xml",
-    "R7 Política": "https://noticias.r7.com/rss.xml",
-    "Terra Política": "https://www.terra.com.br/noticias/politica/rss",
-    "Gaúcha ZH": "https://gauchazh.clicrbs.com.br/politica/rss",
+    "Jovem Pan":       "https://jovempan.com.br/feed",
+    "CNN Brasil":      "https://www.cnnbrasil.com.br/feed/",
+    "Folha de S.Paulo":"https://feeds.folha.uol.com.br/poder/rss091.xml",
+    "O Globo Política":"https://oglobo.globo.com/rss.xml?secao=politica",
+    "Metrópoles":      "https://www.metropoles.com/feed",
+    "Veja":            "https://veja.abril.com.br/feed/",
+    "UOL Política":    "https://rss.uol.com.br/feed/noticias/politica.xml",
+    "R7 Política":     "https://noticias.r7.com/rss.xml",
 }
 
-# ─── Contas do X a monitorar (via scraping público) ───────────────────────────
+# ─── Contas do X ──────────────────────────────────────────────────────────────
 X_ACCOUNTS = [
-    "jairbolsonaro", "CarlosEduVereza", "RodrigoConstant",
-    "flaviobolsonaro", "eduardobolsonaro", "joaoromaooficial",
+    "jairbolsonaro", "CarlosEduVereza",
+    "flaviobolsonaro", "eduardobolsonaro",
 ]
 
-# ─── Persistência de IDs já vistos ────────────────────────────────────────────
+NITTER_INSTANCES = [
+    "https://nitter.poast.org",
+    "https://nitter.privacydev.net",
+]
 
-def load_seen() -> set:
-    if SEEN_FILE.exists():
-        return set(json.loads(SEEN_FILE.read_text()))
-    return set()
+# ─── Persistência ──────────────────────────────────────────────────────────────
+def load_seen():
+    try:
+        with open(SEEN_FILE) as f:
+            return set(json.load(f))
+    except:
+        return set()
 
+def save_seen(seen):
+    with open(SEEN_FILE, "w") as f:
+        json.dump(list(seen)[-5000:], f)
 
-def save_seen(seen: set):
-    SEEN_FILE.write_text(json.dumps(list(seen)[-5000:]))  # mantém os últimos 5000
-
-
-def make_id(text: str) -> str:
+def make_id(text):
     return hashlib.md5(text.encode()).hexdigest()
 
-
-# ─── Filtro de relevância ──────────────────────────────────────────────────────
-
-def is_relevant(text: str) -> bool:
+def is_relevant(text):
     t = text.lower()
     return any(kw in t for kw in KEYWORDS)
 
-
-# ─── Formatação da mensagem ────────────────────────────────────────────────────
-
-def format_message(source: str, title: str, summary: str, url: str, published: str = "") -> str:
+# ─── Formatação ────────────────────────────────────────────────────────────────
+def format_message(source, title, summary, url, published=""):
     emoji_map = {
-        "Jovem Pan": "📻",
-        "CNN Brasil": "📺",
-        "Folha de S.Paulo": "📰",
-        "O Globo Política": "🌐",
-        "Metrópoles": "🏙️",
-        "Veja": "📖",
-        "UOL Política": "💻",
-        "R7 Política": "📡",
+        "Jovem Pan": "📻", "CNN Brasil": "📺",
+        "Folha de S.Paulo": "📰", "O Globo Política": "🌐",
+        "Metrópoles": "🏙️", "Veja": "📖",
+        "UOL Política": "💻", "R7 Política": "📡",
         "X (Twitter)": "🐦",
     }
     emoji = emoji_map.get(source, "📢")
     summary_clean = re.sub(r"<[^>]+>", "", summary).strip()
     summary_short = summary_clean[:300] + "…" if len(summary_clean) > 300 else summary_clean
-
-    lines = [
-        f"{emoji} *{source}*",
-        f"",
-        f"*{title}*",
-    ]
+    lines = [f"{emoji} *{source}*", "", f"*{title}*"]
     if summary_short:
         lines += ["", summary_short]
     if published:
         lines += ["", f"🕐 _{published}_"]
     lines += ["", f"[🔗 Ler notícia completa]({url})"]
-
     return "\n".join(lines)
 
-
-# ─── Envio ao Telegram ─────────────────────────────────────────────────────────
-
-async def send_news(bot: Bot, message: str):
+# ─── Envio ─────────────────────────────────────────────────────────────────────
+async def send_news(bot, message):
     try:
         await bot.send_message(
             chat_id=TELEGRAM_CHANNEL,
@@ -133,49 +115,32 @@ async def send_news(bot: Bot, message: str):
             parse_mode=ParseMode.MARKDOWN,
             disable_web_page_preview=False,
         )
-        log.info("✅ Notícia enviada ao canal.")
+        log.info("✅ Notícia enviada.")
     except TelegramError as e:
-        log.error(f"❌ Erro ao enviar mensagem: {e}")
-
+        log.error(f"❌ Erro Telegram: {e}")
 
 # ─── Coleta RSS ────────────────────────────────────────────────────────────────
-
-async def fetch_rss(source: str, url: str, seen: set, bot: Bot):
+async def fetch_rss(source, url, seen, bot):
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
-            feed = feedparser.parse(resp.text)
-
+        feed = feedparser.parse(resp.text)
         for entry in feed.entries[:10]:
             title   = entry.get("title", "")
             link    = entry.get("link", "")
             summary = entry.get("summary", entry.get("description", ""))
             pub     = entry.get("published", "")
-
             uid = make_id(link or title)
-            if uid in seen:
+            if uid in seen or not is_relevant(title + " " + summary):
                 continue
-            if not is_relevant(title + " " + summary):
-                continue
-
             seen.add(uid)
-            msg = format_message(source, title, summary, link, pub)
-            await send_news(bot, msg)
-            await asyncio.sleep(2)  # anti-flood
-
+            await send_news(bot, format_message(source, title, summary, link, pub))
+            await asyncio.sleep(2)
     except Exception as e:
-        log.warning(f"⚠️ Erro no feed {source}: {e}")
+        log.warning(f"⚠️ RSS {source}: {e}")
 
-
-# ─── Coleta X/Twitter via Nitter (scraping livre) ─────────────────────────────
-
-NITTER_INSTANCES = [
-    "https://nitter.poast.org",
-    "https://nitter.privacydev.net",
-    "https://nitter.1d4.us",
-]
-
-async def fetch_x_account(account: str, seen: set, bot: Bot):
+# ─── Coleta X ──────────────────────────────────────────────────────────────────
+async def fetch_x_account(account, seen, bot):
     for instance in NITTER_INSTANCES:
         try:
             url = f"{instance}/{account}/rss"
@@ -184,53 +149,49 @@ async def fetch_x_account(account: str, seen: set, bot: Bot):
             if resp.status_code != 200:
                 continue
             feed = feedparser.parse(resp.text)
-
             for entry in feed.entries[:5]:
                 title   = entry.get("title", "")
                 link    = entry.get("link", "").replace(instance, "https://x.com")
                 summary = entry.get("description", "")
                 pub     = entry.get("published", "")
-
                 uid = make_id(link or title)
-                if uid in seen:
+                if uid in seen or not is_relevant(title + " " + summary):
                     continue
-                if not is_relevant(title + " " + summary):
-                    continue
-
                 seen.add(uid)
-                msg = format_message("X (Twitter)", f"@{account}: {title}", summary, link, pub)
-                await send_news(bot, msg)
+                await send_news(bot, format_message("X (Twitter)", f"@{account}: {title}", summary, link, pub))
                 await asyncio.sleep(2)
-
-            break  # instância funcionou, não tenta a próxima
-
+            break
         except Exception as e:
-            log.warning(f"⚠️ Nitter {instance} falhou para @{account}: {e}")
-            continue
-
+            log.warning(f"⚠️ Nitter {instance} @{account}: {e}")
 
 # ─── Loop principal ────────────────────────────────────────────────────────────
-
-async def main():
-    log.info("🤖 Bot de notícias iniciado!")
+async def main_loop():
+    log.info("🤖 Bot iniciado!")
     bot  = Bot(token=TELEGRAM_TOKEN)
     seen = load_seen()
-
     while True:
-        log.info(f"🔍 Verificando fontes... ({datetime.now().strftime('%H:%M:%S')})")
-
-        # RSS
-        rss_tasks = [fetch_rss(src, url, seen, bot) for src, url in RSS_FEEDS.items()]
-        await asyncio.gather(*rss_tasks)
-
-        # X/Twitter
-        x_tasks = [fetch_x_account(acc, seen, bot) for acc in X_ACCOUNTS]
-        await asyncio.gather(*x_tasks)
-
+        log.info(f"🔍 Verificando... {datetime.now().strftime('%H:%M:%S')}")
+        await asyncio.gather(*[fetch_rss(s, u, seen, bot) for s, u in RSS_FEEDS.items()])
+        await asyncio.gather(*[fetch_x_account(a, seen, bot) for a in X_ACCOUNTS])
         save_seen(seen)
-        log.info(f"💤 Aguardando {CHECK_INTERVAL}s até próxima verificação...")
         await asyncio.sleep(CHECK_INTERVAL)
 
+# ─── Servidor HTTP (necessário para Render free tier) ─────────────────────────
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot rodando!")
+    def log_message(self, *args):
+        pass
 
+def start_http_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    log.info(f"🌐 Servidor HTTP na porta {port}")
+    server.serve_forever()
+
+# ─── Entrada ───────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    asyncio.run(main())
+    threading.Thread(target=start_http_server, daemon=True).start()
+    asyncio.run(main_loop())

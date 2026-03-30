@@ -1,5 +1,5 @@
 services:
-  - type: worker
+  - type: web
     name: telegram-news-bot
     runtime: python
     plan: free
@@ -10,4 +10,3 @@ services:
         value: 8782210764:AAGTmH82vHkDdmvUuUwfz_KluRmNs-CIUd0
       - key: TELEGRAM_CHANNEL
         value: -1003755322295
- 
