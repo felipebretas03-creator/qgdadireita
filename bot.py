@@ -37,11 +37,30 @@ CHECK_INTERVAL   = 60  # segundos
 
 # ─── Palavras-chave ────────────────────────────────────────────────────────────
 KEYWORDS = [
-    "governo", "bolsonaro", "lula", "direita", "conservador",
-    "ministério", "congresso", "senado", "câmara", "presidente",
-    "militar", "patriota", "liberal", "economia", "tributação",
-    "pec", "reforma", "stf", "supremo", "eleição", "partido",
-    "pl", "novo", "pp", "republicans", "união brasil",
+    # Figuras da direita
+    "bolsonaro", "eduardo bolsonaro", "flavio bolsonaro", "carlos bolsonaro",
+    "tarcísio", "tarcisio", "pablo marçal", "pablo marcal", "nikolas",
+    "damares", "marco feliciano", "magno malta", "gustavo gayer",
+    "ernesto araújo", "paulo guedes", "sergio moro", "moro",
+    # Partidos de direita
+    "pl ", "partido liberal", "novo partido", "patriota", "republicanos",
+    "união brasil", "progressistas", "pp partido", "podemos partido",
+    # Temas da direita
+    "direita", "conservador", "conservadora", "liberal conservador",
+    "armamento", "porte de arma", "flexibilização de armas",
+    "família tradicional", "valores cristãos", "anticomunismo",
+    "anti-esquerda", "contra o pt", "privatização", "livre mercado",
+    "menos impostos", "redução do estado", "agenda conservadora",
+    # Política geral relevante
+    "stf", "supremo tribunal", "alexandre de moraes", "moraes",
+    "congresso nacional", "senado federal", "câmara dos deputados",
+    "impeachment", "cpmi", "cpi", "constituição", "pec",
+    "eleição", "urna eletrônica", "voto impresso", "fraude eleitoral",
+    "forças armadas", "militares", "exército", "marinha", "aeronáutica",
+    "intervenção", "golpe", "democracia", "ditadura",
+    # Anti-esquerda / oposição
+    "contra lula", "governo lula", "pt partido", "esquerda radical",
+    "comunismo", "socialismo", "marxismo", "globalismo",
 ]
 
 # ─── Fontes RSS ────────────────────────────────────────────────────────────────
