@@ -49,53 +49,108 @@ if REDIS_URL:
 
 # ─── Palavras-chave ────────────────────────────────────────────────────────────
 KEYWORDS = [
-    # Figuras da direita
-    "bolsonaro", "eduardo bolsonaro", "flavio bolsonaro", "carlos bolsonaro",
-    "tarcísio", "tarcisio", "pablo marçal", "pablo marcal", "nikolas",
-    "damares", "marco feliciano", "magno malta", "gustavo gayer",
-    "ernesto araújo", "paulo guedes", "sergio moro", "moro",
+    # Família Bolsonaro
+    "bolsonaro", "jair bolsonaro", "eduardo bolsonaro", "flávio bolsonaro",
+    "carlos bolsonaro", "michelle bolsonaro", "renan bolsonaro",
+
+    # Líderes da direita nacional
+    "tarcísio", "tarcisio de freitas", "nikolas ferreira", "pablo marçal",
+    "pablo marcal", "damares alves", "marco feliciano", "magno malta",
+    "gustavo gayer", "sergio moro", "paulo guedes", "ernesto araújo",
+    "hamilton mourão", "augusto heleno", "braga netto", "walter braga netto",
+    "jorge seif", "anderson torres", "filipe martins", "oswaldo eustáquio",
+    "joel santana político", "arthur lira", "rodrigo pacheco direita",
+
+    # Candidatos eleições estaduais - direita
+    "rogério marinho", "giovani cherini", "coronel meira", "fred costa",
+    "coronel ulysses", "julia zanatta", "caroline de toni", "alexandre ramagem",
+    "daniel silveira", "carla zambelli", "bia kicis", "chris tonietto",
+    "pastor gil", "hélio lopes", "júlia zanatta", "silvio costa filho",
+    "capitão alden", "coronel tadeu", "alex manente", "joel santana",
+    "roberto pessoa", "capitão wagner", "dr. jaziel", "israel batista",
+
     # Partidos de direita
-    "pl ", "partido liberal", "novo partido", "patriota", "republicanos",
-    "união brasil", "progressistas", "pp partido", "podemos partido",
+    "partido liberal", "pl partido", "partido novo", "partido patriota",
+    "republicanos partido", "união brasil", "progressistas", "pp partido",
+    "podemos partido", "solidariedade partido", "avante partido",
+    "prtb partido", "dc partido", "agir partido",
+
+    # Eleições 2026
+    "eleições 2026", "candidato 2026", "pré-candidato", "corrida eleitoral",
+    "pesquisa eleitoral", "pesquisa datafolha direita", "pesquisa ipec direita",
+    "eleição governador", "eleição senador", "eleição deputado federal",
+    "eleição deputado estadual", "eleição prefeito direita",
+
     # Temas da direita
-    "direita", "conservador", "conservadora", "liberal conservador",
-    "armamento", "porte de arma", "flexibilização de armas",
+    "pauta conservadora", "agenda conservadora", "valores conservadores",
+    "porte de arma", "flexibilização de armas", "armamento civil",
     "família tradicional", "valores cristãos", "anticomunismo",
-    "anti-esquerda", "contra o pt", "privatização", "livre mercado",
-    "menos impostos", "redução do estado", "agenda conservadora",
-    # Política geral relevante
-    "stf", "supremo tribunal", "alexandre de moraes", "moraes",
+    "privatização", "livre mercado", "menos impostos", "estado mínimo",
+    "liberalismo econômico", "reforma tributária direita",
+    "escola sem partido", "homeschooling", "educação domiciliar",
+    "ideologia de gênero", "kit gay", "censura conservadora",
+
+    # Política institucional
+    "stf", "alexandre de moraes", "impeachment", "cpmi", "cpi",
+    "urna eletrônica", "voto impresso", "fraude eleitoral", "tse",
+    "forças armadas", "intervenção federal", "pec", "constituição federal",
     "congresso nacional", "senado federal", "câmara dos deputados",
-    "impeachment", "cpmi", "cpi", "constituição", "pec",
-    "eleição", "urna eletrônica", "voto impresso", "fraude eleitoral",
-    "forças armadas", "militares", "exército", "marinha", "aeronáutica",
-    "intervenção", "golpe", "democracia", "ditadura",
+
     # Anti-esquerda / oposição
-    "contra lula", "governo lula", "pt partido", "esquerda radical",
-    "comunismo", "socialismo", "marxismo", "globalismo",
+    "governo lula", "lula errou", "lula mentiu", "pt partido",
+    "esquerda radical", "comunismo", "socialismo", "marxismo",
+    "mst invasão", "crime organizado esquerda", "censura esquerda",
+
+    # Apoiadores e influenciadores
+    "allan dos santos", "bernardo küster", "bernardo kuster",
+    "monark político", "arthur do val", "mamãe falei",
+    "joel jota", "caio coppolla", "joel santana político",
+]
+
+# Palavras que BLOQUEIAM a notícia mesmo que tenha keyword
+BLOCKLIST = [
+    "mata ", "matou", "assassin", "homicídio",
+    "acidente de trânsito", "bateu carro", "morreu atropelado",
+    "estupro", "abuso sexual",
+    "esporte", "futebol", "campeonato", "copa do mundo", "olimpíadas",
+    "celebridade", "novela", "música", "show", "entretenimento",
+    "receita culinária", "remédio", "hospital", "doença viral",
 ]
 
 # ─── Fontes RSS ────────────────────────────────────────────────────────────────
 RSS_FEEDS = {
-    "Jovem Pan":       "https://jovempan.com.br/feed",
-    "CNN Brasil":      "https://www.cnnbrasil.com.br/feed/",
-    "Folha de S.Paulo":"https://feeds.folha.uol.com.br/poder/rss091.xml",
-    "O Globo Política":"https://oglobo.globo.com/rss.xml?secao=politica",
-    "Metrópoles":      "https://www.metropoles.com/feed",
-    "Veja":            "https://veja.abril.com.br/feed/",
-    "UOL Política":    "https://rss.uol.com.br/feed/noticias/politica.xml",
-    "R7 Política":     "https://noticias.r7.com/rss.xml",
+    "Jovem Pan":         "https://jovempan.com.br/feed",
+    "Jovem Pan Política":"https://jovempan.com.br/category/noticias/politica/feed",
+    "CNN Brasil":        "https://www.cnnbrasil.com.br/politica/feed/",
+    "Folha Poder":       "https://feeds.folha.uol.com.br/poder/rss091.xml",
+    "O Globo Política":  "https://oglobo.globo.com/rss.xml?secao=politica",
+    "Metrópoles Política":"https://www.metropoles.com/brasil/politica/feed",
+    "Veja":              "https://veja.abril.com.br/feed/",
+    "Veja Política":     "https://veja.abril.com.br/categoria/politica/feed/",
+    "UOL Política":      "https://rss.uol.com.br/feed/noticias/politica.xml",
+    "R7 Política":       "https://noticias.r7.com/politica/feed.xml",
+    "Gazeta do Povo":    "https://www.gazetadopovo.com.br/feed/republica/",
+    "O Antagonista":     "https://oantagonista.com.br/feed/",
+    "Oeste":             "https://revistaoeste.com/feed/",
+    "Crusoé":            "https://crusoe.com.br/feed/",
 }
 
-# ─── Contas do X ──────────────────────────────────────────────────────────────
+# ─── Contas do X (bancada da direita) ─────────────────────────────────────────
 X_ACCOUNTS = [
-    "jairbolsonaro", "CarlosEduVereza",
-    "flaviobolsonaro", "eduardobolsonaro",
-]
-
-NITTER_INSTANCES = [
-    "https://nitter.poast.org",
-    "https://nitter.privacydev.net",
+    # Família Bolsonaro
+    "jairbolsonaro", "flaviobolsonaro", "eduardobolsonaro",
+    "carlosbolsonaro", "michellebolsonaro",
+    # Líderes nacionais
+    "nikolas_foto", "pablomarcal", "damasceno_mdb",
+    "tarcisiogdf", "sergiomoro", "damaresalves",
+    "MarcoFeliciano", "magnomalta", "GustavoGayer",
+    # Deputados federais - direita
+    "CarlaZambelli", "biakicis", "ChrisTonietto",
+    "JuliaMZanatta", "CarolineDeToni", "AlexRamagem",
+    "DanielSilveira", "HelioCopter", "JoelJota",
+    # Influenciadores conservadores
+    "caiocoppolla", "bernardokuster", "opropriolucas",
+    "renanoproprio", "olavodecarvalho",
 ]
 
 # ─── Persistência ──────────────────────────────────────────────────────────────
@@ -125,6 +180,10 @@ def make_id(text):
 
 def is_relevant(text):
     t = text.lower()
+    # Bloqueia se tiver palavra da blocklist
+    if any(b in t for b in BLOCKLIST):
+        return False
+    # Exige pelo menos 1 keyword
     return any(kw in t for kw in KEYWORDS)
 
 # ─── Formatação ────────────────────────────────────────────────────────────────
