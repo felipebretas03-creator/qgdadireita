@@ -2,6 +2,7 @@ services:
   - type: worker
     name: telegram-news-bot
     runtime: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python bot.py
     envVars:
@@ -9,3 +10,4 @@ services:
         value: 8782210764:AAGTmH82vHkDdmvUuUwfz_KluRmNs-CIUd0
       - key: TELEGRAM_CHANNEL
         value: -1003755322295
+ 
