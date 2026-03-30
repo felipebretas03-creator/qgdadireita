@@ -225,7 +225,7 @@ async def fetch_rss(source, url, seen, bot):
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
         feed = feedparser.parse(resp.text)
-        for entry in feed.entries[:10]:
+        for entry in feed.entries[:5]:  # máx 5 por fonte
             title   = entry.get("title", "")
             link    = entry.get("link", "")
             summary = entry.get("summary", entry.get("description", ""))
@@ -235,7 +235,7 @@ async def fetch_rss(source, url, seen, bot):
                 continue
             seen.add(uid)
             await send_news(bot, format_message(source, title, summary, link, pub))
-            await asyncio.sleep(2)
+            await asyncio.sleep(5)  # 5s entre mensagens anti-flood
     except Exception as e:
         log.warning(f"⚠️ RSS {source}: {e}")
 
@@ -249,7 +249,7 @@ async def fetch_x_account(account, seen, bot):
             if resp.status_code != 200:
                 continue
             feed = feedparser.parse(resp.text)
-            for entry in feed.entries[:5]:
+            for entry in feed.entries[:3]:  # máx 3 por conta
                 title   = entry.get("title", "")
                 link    = entry.get("link", "").replace(instance, "https://x.com")
                 summary = entry.get("description", "")
@@ -259,7 +259,7 @@ async def fetch_x_account(account, seen, bot):
                     continue
                 seen.add(uid)
                 await send_news(bot, format_message("X (Twitter)", f"@{account}: {title}", summary, link, pub))
-                await asyncio.sleep(2)
+                await asyncio.sleep(5)  # 5s entre mensagens anti-flood
             break
         except Exception as e:
             log.warning(f"⚠️ Nitter {instance} @{account}: {e}")
@@ -271,8 +271,13 @@ async def main_loop():
     seen = load_seen()
     while True:
         log.info(f"🔍 Verificando... {datetime.now().strftime('%H:%M:%S')}")
-        await asyncio.gather(*[fetch_rss(s, u, seen, bot) for s, u in RSS_FEEDS.items()])
-        await asyncio.gather(*[fetch_x_account(a, seen, bot) for a in X_ACCOUNTS])
+        # Roda fontes sequencialmente para evitar flood
+        for s, u in RSS_FEEDS.items():
+            await fetch_rss(s, u, seen, bot)
+            await asyncio.sleep(3)
+        for a in X_ACCOUNTS:
+            await fetch_x_account(a, seen, bot)
+            await asyncio.sleep(3)
         save_seen(seen)
         await asyncio.sleep(CHECK_INTERVAL)
 
