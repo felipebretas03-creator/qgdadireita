@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-Bot de Notícias Telegram - QG da Direita
-Anti-duplicatas via Redis (chave individual por notícia com TTL 7 dias)
-"""
+"""Bot QG da Direita - com lock Redis para evitar instâncias duplicadas"""
 
 import asyncio
 import feedparser
@@ -36,6 +33,21 @@ if REDIS_URL:
         log.info("✅ Redis conectado!")
     except Exception as e:
         log.warning(f"⚠️ Redis falhou: {e}")
+
+def acquire_lock():
+    """Garante que só uma instância do bot roda por vez."""
+    if not rdb:
+        return True
+    result = rdb.set("bot:lock", "1", nx=True, ex=300)
+    return result is not None
+
+def renew_lock():
+    """Renova o lock a cada ciclo."""
+    if rdb:
+        try:
+            rdb.expire("bot:lock", 300)
+        except:
+            pass
 
 def was_sent(uid):
     if rdb:
@@ -200,7 +212,20 @@ async def fetch_x(account, bot):
 async def main_loop():
     log.info("🤖 QG da Direita - Bot iniciado!")
     bot = Bot(token=TELEGRAM_TOKEN)
+
+    # Aguarda um pouco para deixar a instância antiga morrer
+    await asyncio.sleep(10)
+
+    if not acquire_lock():
+        log.warning("⚠️ Outra instância já está rodando. Aguardando...")
+        while not acquire_lock():
+            await asyncio.sleep(30)
+        log.info("✅ Lock adquirido! Iniciando...")
+
+    log.info("🔒 Lock Redis adquirido — sou a única instância ativa.")
+
     while True:
+        renew_lock()
         log.info(f"🔍 {datetime.now().strftime('%H:%M:%S')}")
         for source, url in RSS_FEEDS.items():
             await fetch_rss(source, url, bot)
