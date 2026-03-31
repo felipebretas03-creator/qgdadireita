@@ -167,8 +167,19 @@ def load_seen():
             log.warning(f"⚠️ Redis load falhou: {e}")
     return SEEN_LOCAL
 
+def already_seen(uid):
+    """Verifica se o ID já foi enviado — checa Redis E memória local."""
+    if uid in SEEN_LOCAL:
+        return True
+    if rdb:
+        try:
+            return rdb.sismember("seen_ids", uid)
+        except:
+            pass
+    return False
+
 def add_seen(uid):
-    """Adiciona ID à memória local e ao Redis imediatamente."""
+    """Marca ID como visto — salva em memória E no Redis."""
     global SEEN_LOCAL
     SEEN_LOCAL.add(uid)
     if rdb:
@@ -240,7 +251,7 @@ async def send_news(bot, message):
         log.error(f"❌ Erro Telegram: {e}")
 
 # ─── Coleta RSS ────────────────────────────────────────────────────────────────
-async def fetch_rss(source, url, seen, bot):
+async def fetch_rss(source, url, bot):
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -251,21 +262,20 @@ async def fetch_rss(source, url, seen, bot):
             summary = entry.get("summary", entry.get("description", ""))
             pub     = entry.get("published", "")
             uid = make_id(link or title)
-            if uid in seen:
+            if already_seen(uid):
                 continue
             if not is_recent(pub):
                 continue
             if not is_relevant(title + " " + summary):
                 continue
             add_seen(uid)
-            seen.add(uid)
             await send_news(bot, format_message(source, title, summary, link, pub))
             await asyncio.sleep(5)
     except Exception as e:
         log.warning(f"⚠️ RSS {source}: {e}")
 
 # ─── Coleta X ──────────────────────────────────────────────────────────────────
-async def fetch_x_account(account, seen, bot):
+async def fetch_x_account(account, bot):
     for instance in NITTER_INSTANCES:
         try:
             url = f"{instance}/{account}/rss"
@@ -280,10 +290,9 @@ async def fetch_x_account(account, seen, bot):
                 summary = entry.get("description", "")
                 pub     = entry.get("published", "")
                 uid = make_id(link or title)
-                if uid in seen or not is_relevant(title + " " + summary):
+                if already_seen(uid) or not is_relevant(title + " " + summary):
                     continue
                 add_seen(uid)
-                seen.add(uid)
                 await send_news(bot, format_message("X (Twitter)", f"@{account}: {title}", summary, link, pub))
                 await asyncio.sleep(5)  # 5s entre mensagens anti-flood
             break
@@ -293,16 +302,15 @@ async def fetch_x_account(account, seen, bot):
 # ─── Loop principal ────────────────────────────────────────────────────────────
 async def main_loop():
     log.info("🤖 Bot iniciado!")
-    bot  = Bot(token=TELEGRAM_TOKEN)
-    seen = load_seen()
+    bot = Bot(token=TELEGRAM_TOKEN)
+    load_seen()
     while True:
         log.info(f"🔍 Verificando... {datetime.now().strftime('%H:%M:%S')}")
-        # Roda fontes sequencialmente para evitar flood
         for s, u in RSS_FEEDS.items():
-            await fetch_rss(s, u, seen, bot)
+            await fetch_rss(s, u, bot)
             await asyncio.sleep(3)
         for a in X_ACCOUNTS:
-            await fetch_x_account(a, seen, bot)
+            await fetch_x_account(a, bot)
             await asyncio.sleep(3)
         log.info(f"💤 Aguardando {CHECK_INTERVAL}s...")
         await asyncio.sleep(CHECK_INTERVAL)
