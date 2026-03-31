@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bot QG da Direita - com lock Redis para evitar instâncias duplicadas"""
+"""Bot QG da Direita - com enquetes, alertas urgentes e lock Redis"""
 
 import asyncio
 import feedparser
@@ -7,13 +7,14 @@ import hashlib
 import logging
 import os
 import re
+import random
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from datetime import datetime
 
 import httpx
 import redis
-from telegram import Bot
+from telegram import Bot, Poll
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
 
@@ -35,14 +36,11 @@ if REDIS_URL:
         log.warning(f"⚠️ Redis falhou: {e}")
 
 def acquire_lock():
-    """Garante que só uma instância do bot roda por vez."""
     if not rdb:
         return True
-    result = rdb.set("bot:lock", "1", nx=True, ex=300)
-    return result is not None
+    return rdb.set("bot:lock", "1", nx=True, ex=300) is not None
 
 def renew_lock():
-    """Renova o lock a cada ciclo."""
     if rdb:
         try:
             rdb.expire("bot:lock", 300)
@@ -66,6 +64,16 @@ def mark_sent(uid):
 
 def make_uid(text):
     return hashlib.md5(text.encode()).hexdigest()
+
+# ─── Palavras urgentes ─────────────────────────────────────────────────────────
+URGENT_KEYWORDS = [
+    "bolsonaro preso", "bolsonaro solto", "bolsonaro condenado",
+    "bolsonaro candidato", "golpe", "impeachment", "intervenção",
+    "stf suspende", "stf derruba", "alexandre de moraes preso",
+    "lula preso", "lula condenado", "eleição cancelada",
+    "forças armadas", "estado de sítio", "cpmi instaurada",
+    "nikolas presidente", "tarcísio presidente", "bolsonaro 2026",
+]
 
 KEYWORDS = [
     "bolsonaro", "tarcísio", "tarcisio", "nikolas ferreira", "pablo marçal",
@@ -93,12 +101,49 @@ BLOCKLIST = [
     "receita ", "doença viral",
 ]
 
+def is_urgent(text):
+    t = text.lower()
+    return any(kw in t for kw in URGENT_KEYWORDS)
+
 def is_relevant(text):
     t = text.lower()
     if any(b in t for b in BLOCKLIST):
         return False
     return any(kw in t for kw in KEYWORDS)
 
+# ─── Enquetes ──────────────────────────────────────────────────────────────────
+POLLS = [
+    {
+        "question": "🗳️ Você apoia Bolsonaro como candidato em 2026?",
+        "options": ["✅ Sim, com certeza!", "🤔 Talvez, depende", "❌ Não apoio"],
+    },
+    {
+        "question": "🗳️ Tarcísio de Freitas deve ser candidato à Presidente em 2026?",
+        "options": ["✅ Sim!", "🤔 Prefiro outro candidato", "❌ Não"],
+    },
+    {
+        "question": "🗳️ Você confia no sistema eleitoral brasileiro?",
+        "options": ["✅ Confio", "🤔 Confio parcialmente", "❌ Não confio"],
+    },
+    {
+        "question": "🗳️ O STF está extrapolando seus poderes?",
+        "options": ["✅ Sim, com certeza", "🤔 Em alguns casos", "❌ Não, age corretamente"],
+    },
+    {
+        "question": "🗳️ Qual pauta é mais importante para a direita?",
+        "options": ["🔫 Armamento", "💰 Economia", "👨‍👩‍👧 Família", "🗳️ Eleições 2026"],
+    },
+    {
+        "question": "🗳️ Você acredita que houve fraude nas eleições de 2022?",
+        "options": ["✅ Sim", "🤔 Tenho dúvidas", "❌ Não"],
+    },
+    {
+        "question": "🗳️ Nikolas Ferreira deve ser candidato a presidente?",
+        "options": ["✅ Sim!", "🤔 Ainda não é hora", "❌ Prefiro outro"],
+    },
+]
+
+# ─── RSS ───────────────────────────────────────────────────────────────────────
 RSS_FEEDS = {
     "Jovem Pan":        "https://jovempan.com.br/feed",
     "CNN Brasil":       "https://www.cnnbrasil.com.br/politica/feed/",
@@ -134,7 +179,7 @@ EMOJI_MAP = {
     "X (Twitter)": "🐦",
 }
 
-def format_msg(source, title, summary, url, pub=""):
+def format_normal(source, title, summary, url, pub=""):
     emoji = EMOJI_MAP.get(source, "📢")
     clean = re.sub(r"<[^>]+>", "", summary).strip()
     short = clean[:280] + "…" if len(clean) > 280 else clean
@@ -146,7 +191,24 @@ def format_msg(source, title, summary, url, pub=""):
     parts += ["", f"[🔗 Ler completo]({url})"]
     return "\n".join(parts)
 
-async def send(bot, msg):
+def format_urgent(source, title, summary, url, pub=""):
+    clean = re.sub(r"<[^>]+>", "", summary).strip()
+    short = clean[:280] + "…" if len(clean) > 280 else clean
+    parts = [
+        "🚨🚨🚨 *URGENTE* 🚨🚨🚨",
+        "",
+        f"📢 *{source}*",
+        "",
+        f"*{title}*",
+    ]
+    if short:
+        parts += ["", short]
+    if pub:
+        parts += ["", f"🕐 _{pub}_"]
+    parts += ["", f"[🔗 Ler completo]({url})"]
+    return "\n".join(parts)
+
+async def send_msg(bot, msg):
     try:
         await bot.send_message(
             chat_id=TELEGRAM_CHANNEL,
@@ -157,6 +219,19 @@ async def send(bot, msg):
         log.info("✅ Enviado.")
     except TelegramError as e:
         log.error(f"❌ Telegram: {e}")
+
+async def send_poll(bot):
+    poll = random.choice(POLLS)
+    try:
+        await bot.send_poll(
+            chat_id=TELEGRAM_CHANNEL,
+            question=poll["question"],
+            options=poll["options"],
+            is_anonymous=True,
+        )
+        log.info("🗳️ Enquete enviada.")
+    except TelegramError as e:
+        log.error(f"❌ Enquete: {e}")
 
 async def fetch_rss(source, url, bot):
     try:
@@ -176,7 +251,11 @@ async def fetch_rss(source, url, bot):
             if not is_relevant(title + " " + summary):
                 continue
             mark_sent(uid)
-            await send(bot, format_msg(source, title, summary, link, pub))
+            if is_urgent(title + " " + summary):
+                msg = format_urgent(source, title, summary, link, pub)
+            else:
+                msg = format_normal(source, title, summary, link, pub)
+            await send_msg(bot, msg)
             await asyncio.sleep(6)
     except Exception as e:
         log.warning(f"⚠️ RSS {source}: {e}")
@@ -203,7 +282,11 @@ async def fetch_x(account, bot):
                 if not is_relevant(title + " " + summary):
                     continue
                 mark_sent(uid)
-                await send(bot, format_msg("X (Twitter)", f"@{account}: {title}", summary, link, pub))
+                if is_urgent(title + " " + summary):
+                    msg = format_urgent("X (Twitter)", f"@{account}: {title}", summary, link, pub)
+                else:
+                    msg = format_normal("X (Twitter)", f"@{account}: {title}", summary, link, pub)
+                await send_msg(bot, msg)
                 await asyncio.sleep(6)
             break
         except Exception as e:
@@ -213,26 +296,33 @@ async def main_loop():
     log.info("🤖 QG da Direita - Bot iniciado!")
     bot = Bot(token=TELEGRAM_TOKEN)
 
-    # Aguarda um pouco para deixar a instância antiga morrer
     await asyncio.sleep(10)
 
     if not acquire_lock():
         log.warning("⚠️ Outra instância já está rodando. Aguardando...")
         while not acquire_lock():
             await asyncio.sleep(30)
-        log.info("✅ Lock adquirido! Iniciando...")
 
-    log.info("🔒 Lock Redis adquirido — sou a única instância ativa.")
+    log.info("🔒 Lock adquirido — única instância ativa.")
 
+    cycle = 0
     while True:
         renew_lock()
-        log.info(f"🔍 {datetime.now().strftime('%H:%M:%S')}")
+        cycle += 1
+        log.info(f"🔍 Ciclo {cycle} — {datetime.now().strftime('%H:%M:%S')}")
+
         for source, url in RSS_FEEDS.items():
             await fetch_rss(source, url, bot)
             await asyncio.sleep(2)
+
         for account in X_ACCOUNTS:
             await fetch_x(account, bot)
             await asyncio.sleep(2)
+
+        # Envia enquete a cada 5 ciclos (~10 minutos)
+        if cycle % 5 == 0:
+            await send_poll(bot)
+
         log.info(f"💤 Aguardando {CHECK_INTERVAL}s")
         await asyncio.sleep(CHECK_INTERVAL)
 
