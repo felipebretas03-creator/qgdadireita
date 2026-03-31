@@ -154,26 +154,32 @@ X_ACCOUNTS = [
 ]
 
 # ─── Persistência ──────────────────────────────────────────────────────────────
-SEEN_LOCAL = set()  # fallback em memória
+SEEN_LOCAL = set()
 
 def load_seen():
+    global SEEN_LOCAL
     if rdb:
         try:
-            return set(rdb.smembers("seen_ids"))
-        except:
-            pass
-    return set(SEEN_LOCAL)
+            SEEN_LOCAL = set(rdb.smembers("seen_ids"))
+            log.info(f"✅ Carregados {len(SEEN_LOCAL)} IDs do Redis")
+            return SEEN_LOCAL
+        except Exception as e:
+            log.warning(f"⚠️ Redis load falhou: {e}")
+    return SEEN_LOCAL
+
+def add_seen(uid):
+    """Adiciona ID à memória local e ao Redis imediatamente."""
+    global SEEN_LOCAL
+    SEEN_LOCAL.add(uid)
+    if rdb:
+        try:
+            rdb.sadd("seen_ids", uid)
+            rdb.expire("seen_ids", 60 * 60 * 24 * 30)
+        except Exception as e:
+            log.warning(f"⚠️ Redis save falhou: {e}")
 
 def save_seen(seen):
-    global SEEN_LOCAL
-    SEEN_LOCAL = seen
-    if rdb:
-        try:
-            if seen:
-                rdb.sadd("seen_ids", *seen)
-                rdb.expire("seen_ids", 60 * 60 * 24 * 30)  # expira em 30 dias
-        except Exception as e:
-            log.warning(f"⚠️ Erro ao salvar no Redis: {e}")
+    pass  # não usado mais, substituído por add_seen()
 
 def make_id(text):
     return hashlib.md5(text.encode()).hexdigest()
@@ -225,7 +231,7 @@ async def fetch_rss(source, url, seen, bot):
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0"})
         feed = feedparser.parse(resp.text)
-        for entry in feed.entries[:5]:  # máx 5 por fonte
+        for entry in feed.entries[:5]:
             title   = entry.get("title", "")
             link    = entry.get("link", "")
             summary = entry.get("summary", entry.get("description", ""))
@@ -233,9 +239,10 @@ async def fetch_rss(source, url, seen, bot):
             uid = make_id(link or title)
             if uid in seen or not is_relevant(title + " " + summary):
                 continue
+            add_seen(uid)
             seen.add(uid)
             await send_news(bot, format_message(source, title, summary, link, pub))
-            await asyncio.sleep(5)  # 5s entre mensagens anti-flood
+            await asyncio.sleep(5)
     except Exception as e:
         log.warning(f"⚠️ RSS {source}: {e}")
 
@@ -257,6 +264,7 @@ async def fetch_x_account(account, seen, bot):
                 uid = make_id(link or title)
                 if uid in seen or not is_relevant(title + " " + summary):
                     continue
+                add_seen(uid)
                 seen.add(uid)
                 await send_news(bot, format_message("X (Twitter)", f"@{account}: {title}", summary, link, pub))
                 await asyncio.sleep(5)  # 5s entre mensagens anti-flood
@@ -278,7 +286,7 @@ async def main_loop():
         for a in X_ACCOUNTS:
             await fetch_x_account(a, seen, bot)
             await asyncio.sleep(3)
-        save_seen(seen)
+        log.info(f"💤 Aguardando {CHECK_INTERVAL}s...")
         await asyncio.sleep(CHECK_INTERVAL)
 
 # ─── Servidor HTTP (necessário para Render free tier) ─────────────────────────
