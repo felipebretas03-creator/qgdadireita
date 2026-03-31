@@ -179,7 +179,21 @@ def add_seen(uid):
             log.warning(f"⚠️ Redis save falhou: {e}")
 
 def save_seen(seen):
-    pass  # não usado mais, substituído por add_seen()
+    pass
+
+def is_recent(pub_str, max_hours=3):
+    """Retorna True se a notícia foi publicada nas últimas max_hours horas."""
+    if not pub_str:
+        return True  # se não tem data, deixa passar
+    try:
+        import email.utils
+        from datetime import timezone
+        t = email.utils.parsedate_to_datetime(pub_str)
+        now = datetime.now(timezone.utc)
+        diff = now - t.astimezone(timezone.utc)
+        return diff.total_seconds() < max_hours * 3600
+    except:
+        return True  # se não conseguir parsear, deixa passar
 
 def make_id(text):
     return hashlib.md5(text.encode()).hexdigest()
@@ -237,7 +251,11 @@ async def fetch_rss(source, url, seen, bot):
             summary = entry.get("summary", entry.get("description", ""))
             pub     = entry.get("published", "")
             uid = make_id(link or title)
-            if uid in seen or not is_relevant(title + " " + summary):
+            if uid in seen:
+                continue
+            if not is_recent(pub):
+                continue
+            if not is_relevant(title + " " + summary):
                 continue
             add_seen(uid)
             seen.add(uid)
